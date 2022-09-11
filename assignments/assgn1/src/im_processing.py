@@ -1,3 +1,4 @@
+from re import S
 import numpy as np
 import matplotlib.pyplot as plt
 from skimage import io
@@ -81,20 +82,35 @@ def demosaicing(im):
     x = np.arange(0, h, 2)
     y = np.arange(0, w, 2)
     xv, yv = np.meshgrid(x, y)
-    R = im[xv.T, yv.T]
-    f = RectBivariateSpline(x, y, R)
-    print(f(0,1))
+    z = im[xv.T, yv.T]
+    f = RectBivariateSpline(x, y, z)
+    R_channel = f(np.arange(0,h), np.arange(0,w))
 
     
     # Green Channel
+    x = np.arange(1, h, 2)
+    y = np.arange(0, w, 2)
+    xv, yv = np.meshgrid(x, y)
+    z = im[xv.T, yv.T]
+    f = RectBivariateSpline(x, y, z)
+    G_channel = f(np.arange(0,h), np.arange(0,w))
 
+    # Blue Channel
+    x = np.arange(1, h, 2)
+    y = np.arange(1, w, 2)
+    xv, yv = np.meshgrid(x, y)
+    z = im[xv.T, yv.T]
+    f = RectBivariateSpline(x, y, z)
+    B_channel = f(np.arange(0,h), np.arange(0,w))
 
     # print(xv.shape, yv.shape, z.shape)
     # print(z)
     # f = interp2d(xv, yv, z)
     # z = f(grid_x, grid_y)
     # print(z)
-    return
+    demosaic = np.stack((R_channel, G_channel, B_channel), 2)
+    demosaic = np.clip(demosaic, 0, 1)
+    return demosaic
 
     
 
@@ -144,6 +160,10 @@ def show_image(im):
     plt.figure()
     plt.imshow(im)
     plt.show()
+
+def save_image(im, filename):
+    plt.figure()
+    plt.imsave(filename, im)
 
 
 def white_balancing_white_world(RGB):
@@ -195,7 +215,7 @@ img = linearize(img, BLACK, WHITE)
 
 RGB = demosaicing(img)
 
-show_image(RGB)
+save_image(RGB, "temp.png")
 
 # RGB = identify_bayer(img, "rggb")
 
