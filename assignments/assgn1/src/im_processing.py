@@ -1,9 +1,7 @@
-# %%
-from importlib.resources import path
+import argparse
 import numpy as np
 import matplotlib.pyplot as plt
 from skimage import io
-import skimage
 from skimage.color import rgb2gray
 from scipy.interpolate import interp2d, RectBivariateSpline
 
@@ -215,19 +213,6 @@ def white_balancing_white_world(img, pattern):
     input: RAW image
     output: balanced image
     """
-    h, w = img.shape[0], img.shape[1]
-
-    # # perform average pooling on the 2x2 blocks
-    # avg_img = skimage.measure.block_reduce(img, (2,2), np.mean)
-    
-    # find brighest block
-    # ind = np.unravel_index(np.argmax(avg_img, axis=None), avg_img.shape)
-    # brightest = img[2*ind[0]:2*ind[0]+2, 2*ind[1]:2*ind[1]+2]
-
-    # add offset to all blocks
-    # offset = 1.0 - brightest
-    # offset = np.tile(offset, (h//2, w//2))
-
     R_mask, G_mask, B_mask = get_mask(img, pattern)
 
     # compute per channel maximum
@@ -294,10 +279,16 @@ def color_space_correction(RGB_cam):
     M_SRGB2CAM = np.matmul(np.array(M_XYZ2CAM) / 10000., np.array(M_SRGB2XYZ))
     row_sums = M_SRGB2CAM.sum(axis=1)
     M_SRGB2CAM /= row_sums[:, np.newaxis]
+    h, w = RGB_cam.shape[0], RGB_cam.shape[1]
 
     inv_M = np.linalg.inv(M_SRGB2CAM)
-    sRGB = np.matmul(inv_M, np.transpose(RGB_cam, (1,2,0)))
-    return np.transpose(sRGB, (2, 0, 1))
+    RGB_cam_T = np.transpose(RGB_cam, (2,0,1))
+    RGB_cam_flatten = RGB_cam_T.reshape(3, -1)
+    sRGB = inv_M @ RGB_cam_flatten
+    sRGB = sRGB.reshape(3, h, w)
+    sRGB = np.transpose(sRGB, (1, 2, 0))
+
+    return sRGB
 
 def brightness_adjustment(RGB, exp_mean):
     """
@@ -329,36 +320,65 @@ B_SCALE = 1.597656
 M_XYZ2CAM = [[6988,-1384,-714],[-5631,13410,2447],[-1485,2204,7318]]
 M_SRGB2XYZ = [[0.4124564, 0.3575761, 0.1804375], [0.2126729, 0.7151522, 0.0721750], [0.0193339, 0.1191920, 0.9503041]]
 
-# Read and load image
-img = read_RAW("../data/campus.tiff")
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='Developing RAW images')
 
-# formatting and linearization
-img = convert2double(img)
-img = linearize(img, BLACK, WHITE)
+    parser.add_argument('--filename', type=str, default="../data/campus.tiff")
+    parser.add_argument('--AWB', type=str, default="preset")
+    parser.add_argument('--pattern', type=str, default="rggb")
+    parser.add_argument("--brightness", type=float, default=0.25)
+    parser.add_argument('--show_image', action='store_true', default=True)
+    parser.add_argument('--save_image', action='store_true')
+    parser.add_argument("--image_name", type=str, default="output")
 
-# white balance
-# img = white_balancing_gray_world(img, "rggb")
-# img= white_balancing_preset(img, "rggb")
-img = white_balancing_white_world(img, "rggb")
-# img = white_balancing_manual(img, [3100,3380])
+    args = parser.parse_args()
+
+    assert args.AWB in ["manual", "white", "gary", "preset"]
+    assert args.pattern in ['grbg', 'rggb', 'bggr', 'gbrg']
+
+    # Read and load image
+    img = read_RAW(args.filename)
+
+    # formatting and linearization
+    print("Linearization...")
+    img = convert2double(img)
+    img = linearize(img, BLACK, WHITE)
+
+    # white balance
+    print("Applying white balancing...")
+    if args.AWB == "white":
+        img = white_balancing_white_world(img, args.pattern)
+    elif args.AWB=="gray:":
+        img = white_balancing_gray_world(img, args.pattern)
+    elif args.AWB=="preset":
+        img= white_balancing_preset(img, args.pattern)
+    elif args.AWB == "manual":
+        img = white_balancing_manual(img, [3100,3380])
 
 
-# demosaic
-RGB = demosaicing(img)
+    # demosaic
+    print("Demosaicing...")
+    RGB = demosaicing(img)
 
-# apply sRGB curve
-sRGB = color_space_correction(RGB)
-RGB = brightness_adjustment(sRGB, 0.25)
+    # apply sRGB curve
+    print("Applying sRGB curve...")
+    sRGB = color_space_correction(RGB)
 
-# Gamma encoding
-RGB = gamma_encoding(RGB)
+    # brightness adjustment
+    print("Adjusting brightness...")
+    RGB = brightness_adjustment(sRGB, args.brightness)
 
-# display image
-# show_image(RGB)
+    # Gamma encoding
+    print("Gamma encoding...")
+    RGB = gamma_encoding(RGB)
 
-# save image
-filename = "AWB_white"
-save_image(RGB, "../data/{}.jpg".format(filename))
-save_image(RGB, "../data/{}.png".format(filename))
+    # display image
+    if args.show_image:
+        print("Showing image...")
+        show_image(RGB)
 
-# %%
+    # save image
+    if args.save_image:
+        save_image(RGB, "../data/{}.jpg".format(args.image_name))
+        save_image(RGB, "../data/{}.png".format(args.image_name))
+        print("Save completed")
