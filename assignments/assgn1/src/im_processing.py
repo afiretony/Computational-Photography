@@ -1,7 +1,10 @@
-from re import S
+# %%
+from importlib.resources import path
 import numpy as np
 import matplotlib.pyplot as plt
 from skimage import io
+import skimage
+from skimage.color import rgb2gray
 from scipy.interpolate import interp2d, RectBivariateSpline
 
 def read_RAW(img_path):
@@ -54,7 +57,6 @@ def identify_bayer_dummy(im, pattern):
     """
     based on pattern of choice, return 3-channel(RGB) image 
     """
-    assert pattern in ['grbg', 'rggb', 'bggr', 'gbrg']
 
     im_info = img_info(im)
     h, w = im_info["height"], im_info["width"]
@@ -75,8 +77,6 @@ def demosaicing(im):
     demosaicing using pattern rggb
     """
     h, w = im.shape[0], im.shape[1]
-    RGB = np.zeros((h, w, 3))
-    grid_x, grid_y = np.meshgrid(np.arange(0, h), np.arange(0, w))
 
     # Red Channel
     x = np.arange(0, h, 2)
@@ -103,11 +103,6 @@ def demosaicing(im):
     f = RectBivariateSpline(x, y, z)
     B_channel = f(np.arange(0,h), np.arange(0,w))
 
-    # print(xv.shape, yv.shape, z.shape)
-    # print(z)
-    # f = interp2d(xv, yv, z)
-    # z = f(grid_x, grid_y)
-    # print(z)
     demosaic = np.stack((R_channel, G_channel, B_channel), 2)
     demosaic = np.clip(demosaic, 0, 1)
     return demosaic
@@ -166,69 +161,204 @@ def save_image(im, filename):
     plt.imsave(filename, im)
 
 
-def white_balancing_white_world(RGB):
+def get_mask(img, pattern):
+    """
+    inputs:
+        img: RAW image to get size of
+        pattern: bayer pattern combination
+    outputs:
+        R_mask, G_mask, B_mask: boolean-mask indicates existance of the color pixel
+    """
+    assert pattern in ['grbg', 'rggb', 'bggr', 'gbrg']
+    h, w = img.shape[0], img.shape[1]
+    R_mask, G_mask, B_mask = np.zeros((h, w), dtype=bool), np.zeros((h, w), dtype=bool), np.zeros((h, w), dtype=bool)
+
+    # index map according to bayer position
+    # upper left
+    ulxv, ulyv = np.meshgrid(np.arange(0, h, 2), np.arange(0, w, 2))
+    # upper right
+    urxv, uryv = np.meshgrid(np.arange(0, h, 2), np.arange(1, w, 2))
+    # lower left
+    llxv, llyv = np.meshgrid(np.arange(1, h, 2), np.arange(0, w, 2))
+    # lower right
+    lrxv, lryv = np.meshgrid(np.arange(1, h, 2), np.arange(1, w, 2))
+
+    if pattern == 'grbg':
+        R_mask[urxv.T, uryv.T] = 1
+        G_mask[ulxv.T, ulyv.T] = 1
+        G_mask[lrxv.T, lryv.T] = 1
+        B_mask[llxv.T, llyv.T] = 1
+
+    elif pattern == 'rggb':
+        R_mask[ulxv.T, ulyv.T] = 1
+        G_mask[urxv.T, uryv.T] = 1
+        G_mask[llxv.T, llyv.T] = 1
+        B_mask[lrxv.T, lryv.T] = 1
+
+    elif pattern == "bggr":
+        R_mask[lrxv.T, lryv.T] = 1
+        G_mask[urxv.T, uryv.T] = 1
+        G_mask[llxv.T, llyv.T] = 1
+        B_mask[ulxv.T, ulyv.T] = 1
+
+    elif pattern == "gbrg":
+        R_mask[llxv.T, llyv.T] = 1
+        G_mask[ulxv.T, ulyv.T] = 1
+        G_mask[lrxv.T, lryv.T] = 1
+        B_mask[urxv.T, uryv.T] = 1
+
+    return R_mask, G_mask, B_mask
+
+def white_balancing_white_world(img, pattern):
     """
     white balancing based on forcing brightest object in scene to be white.
-    input: RGB image
+    input: RAW image
     output: balanced image
     """
-    RGB_sum = np.sum(RGB, 2)
-    ind = np.unravel_index(np.argmax(RGB_sum, axis=None), RGB_sum.shape)
-    brightest = RGB[ind[0], ind[1]]
-    offset = 1.0 - brightest
+    h, w = img.shape[0], img.shape[1]
 
-    return RGB + offset
+    # # perform average pooling on the 2x2 blocks
+    # avg_img = skimage.measure.block_reduce(img, (2,2), np.mean)
+    
+    # find brighest block
+    # ind = np.unravel_index(np.argmax(avg_img, axis=None), avg_img.shape)
+    # brightest = img[2*ind[0]:2*ind[0]+2, 2*ind[1]:2*ind[1]+2]
 
-def white_balancing_gray_world(RGB):
+    # add offset to all blocks
+    # offset = 1.0 - brightest
+    # offset = np.tile(offset, (h//2, w//2))
+
+    R_mask, G_mask, B_mask = get_mask(img, pattern)
+
+    # compute per channel maximum
+    R_max = np.max(img[R_mask])
+    G_max = np.max(img[G_mask])
+    B_max = np.max(img[B_mask])
+
+    img[R_mask] *= G_max / R_max
+    img[B_mask] *= G_max / B_max
+
+    return img
+
+def white_balancing_gray_world(img, pattern):
     """
     force average color of scene to be grey
     """
-    dim = RGB.shape[0] * RGB.shape[1] 
-    RGB_average = np.array([np.sum(RGB[:,:,0]) / dim, np.sum(RGB[:,:,1]) / dim, np.sum(RGB[:,:,2]) / dim])
-    gray = np.array([0.5, 0.5, 0.5])
-    offset = gray - RGB_average
-    balanced = RGB + offset
-    # print(np.array([np.sum(balanced[:,:,0]) / dim, np.sum(balanced[:,:,1]) / dim, np.sum(balanced[:,:,2]) / dim]))
-    return balanced
+    R_mask, G_mask, B_mask = get_mask(img, pattern)
+
+    R_mean = np.mean(img[R_mask])
+    G_mean = np.mean(img[G_mask])
+    B_mean = np.mean(img[B_mask])
+
+    img[R_mask] *= G_mean / R_mean
+    img[B_mask] *= G_mean / B_mean
+    return np.clip(img, 0, 1)
     
-def white_balancing_preset(RGB):
+def white_balancing_preset(img, pattern):
     """
     wb based on preset
     """
-    RGB[:,:,0] *= R_SCALE
-    RGB[:,:,1] *= G_SCALE
-    RGB[:,:,2] *= B_SCALE
+    R_mask, G_mask, B_mask = get_mask(img, pattern)
+    img[R_mask] *= R_SCALE 
+    img[G_mask] *= G_SCALE
+    img[B_mask] *= B_SCALE
+
+    return np.clip(img, 0, 1)
+
+def white_balancing_manual(img, coord):
+    """
+    manually select the white patch and normalize all three channels 
+    for rggb bayer pattern only!
+    """
+    ul = [coord[0] // 2 * 2, coord[1] // 2 * 2]
+    R_mask, G_mask, B_mask = get_mask(img, "rggb")
+
+    R_patch = img[ul[0],   ul[1]]
+    G_patch = img[ul[0],   ul[1]+1]
+    B_patch = img[ul[0]+1, ul[1]+1]
+    
+    img[R_mask] *= G_patch / R_patch
+    img[B_mask] *= G_patch / B_patch
+    return np.clip(img, 0, 1)
+
+
+def color_space_correction(RGB_cam):
+    """
+    perform color space correctino
+    input:
+        RGB_cam: color space determined by the camera's spectral sensitivity functions
+    output:
+        sRGB: linear sRGB color space used in display functions
+    """
+
+    M_SRGB2CAM = np.matmul(np.array(M_XYZ2CAM) / 10000., np.array(M_SRGB2XYZ))
+    row_sums = M_SRGB2CAM.sum(axis=1)
+    M_SRGB2CAM /= row_sums[:, np.newaxis]
+
+    inv_M = np.linalg.inv(M_SRGB2CAM)
+    sRGB = np.matmul(inv_M, np.transpose(RGB_cam, (1,2,0)))
+    return np.transpose(sRGB, (2, 0, 1))
+
+def brightness_adjustment(RGB, exp_mean):
+    """
+    adjust brightness of the RGB image
+    input:
+        RGB: RGB image to scale for
+        exp_mean: expected mean gray scale value, range in [0, 1]
+    output:
+        adjusted image
+
+    """
+    mean_gray = np.mean(rgb2gray(RGB))
+    
+    return np.clip(RGB * exp_mean / mean_gray, 0, 1)
+
+def gamma_encoding(RGB):
+    RGB[RGB <=0.0031308] *= 12.92
+    RGB[RGB > 0.0031308] = 1.055 * RGB[RGB > 0.0031308]**(1 / 2.4) - 0.055
     return RGB
 
 
+# %%
 BLACK = 150.
 WHITE = 4095.
 R_SCALE = 2.394531
 G_SCALE = 1.0
 B_SCALE = 1.597656
 
+M_XYZ2CAM = [[6988,-1384,-714],[-5631,13410,2447],[-1485,2204,7318]]
+M_SRGB2XYZ = [[0.4124564, 0.3575761, 0.1804375], [0.2126729, 0.7151522, 0.0721750], [0.0193339, 0.1191920, 0.9503041]]
 
+# Read and load image
 img = read_RAW("../data/campus.tiff")
 
+# formatting and linearization
 img = convert2double(img)
 img = linearize(img, BLACK, WHITE)
 
+# white balance
+# img = white_balancing_gray_world(img, "rggb")
+# img= white_balancing_preset(img, "rggb")
+img = white_balancing_white_world(img, "rggb")
+# img = white_balancing_manual(img, [3100,3380])
+
+
+# demosaic
 RGB = demosaicing(img)
 
-save_image(RGB, "temp.png")
+# apply sRGB curve
+sRGB = color_space_correction(RGB)
+RGB = brightness_adjustment(sRGB, 0.25)
 
-# RGB = identify_bayer(img, "rggb")
+# Gamma encoding
+RGB = gamma_encoding(RGB)
 
-
-
-# RGB = identify_bayer_dummy(img,"gbrg")
-# show_image(RGB)
-# RGB = white_balancing_white_world(RGB)
-# RGB = white_balancing_gray_world(RGB)
-# RGB = white_balancing_preset(RGB)
+# display image
 # show_image(RGB)
 
-# print(img)
-# print(img_info(img))
+# save image
+filename = "AWB_white"
+save_image(RGB, "../data/{}.jpg".format(filename))
+save_image(RGB, "../data/{}.png".format(filename))
 
-
+# %%
