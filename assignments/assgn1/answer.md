@@ -180,10 +180,58 @@ I like the manufacturor's picture better since it perserved more details, the co
 
 ## 2. Camera Obscura
 
-
-
 ### 2.1 Build the pinhole camera (70 points)
 
+The camera I built has the following configurations and uses a iphone to capture the results.
+
+| Parameters         |              |
+| ------------------ | ------------ |
+| Screen Size        | 6 x 7.9 inch |
+| Focal Length       | 6 inch       |
+| Field of view in x | 53.1 degrees |
+| Field of View in y | 66.7 degrees |
+
+#### Camera front
+
+![](data/front.png)
+
+#### Screen
+
+![](data/screen.jpg)
+
+#### Pinholes
+
+![](data/pinholes.jpg)
+
+
+
 ### 2.2 Use your pinhole camera (30 points)
+
+Here I present some pictures taken using the pinhole camera with different pinhole diameters, the scene is Hamerschlag Hall in cloudy weather.
+
+D = 0.2 inch
+
+![](data/P02.jpeg)
+
+D = 0.135 inch
+
+![](data/P0135.jpg)
+
+D = 0.09 inch
+
+![](data/P009.jpeg)
+
+D = 0.06 inch
+
+![](data/P006.jpeg)
+
+D = 0.04 inch
+
+![](data/P004.jpg)
+
+The pictures are taken under different `ISO`,`Exposure time` settings. Generally, we can notice the following effects as we change the pinholes from large to small:
+
+- The image captured becomes clearer because wider diffraction pattern
+- The brightness gets smaller because of reduced light efficiency
 
 ### 2.3 Bonus: Camera obscura in your room (20 points)
