@@ -1,7 +1,6 @@
-# %%
-from torch import save
 from utils import read_tif, show_im, save_im, read_image
 import numpy as np
+import os
 import cv2
 from scipy.signal import convolve2d
 from scipy.interpolate import interpn
@@ -9,8 +8,7 @@ import gc
 from gamma_encoding import gamma_encoding
 from gamma_correction import gamma_correction
 import logger
-
-logger = logger.create_logger()
+import argparse
 
 
 def gradient(I):
@@ -82,7 +80,7 @@ def GCD(D, I_init, B, I_bound, epsilon, N):
             logger.info("Number of iteration: {}".format(n))
         q = laplacian(d)
         eta = delta_new / np.sum(d * q)
-        I_res = I_res + B * (eta * d)
+        I_res += B * (eta * d)
         r = B * (r - eta * q)
         delta_old = delta_new
         delta_new = np.linalg.norm(r) ** 2
@@ -111,8 +109,8 @@ def compute_GOC_map(ambient, flash):
 def compute_saturation_weight_map(flash, tau_s, sigma):
     omega_s = np.tanh(sigma * (flash - tau_s))
     # normalize
-    normalized = (omega_s - np.min(omega_s)) / (np.max(omega_s) - np.min(omega_s))
-    return normalized
+    omega_s_ = (omega_s - np.min(omega_s)) / (np.max(omega_s) - np.min(omega_s) + 0.001)
+    return omega_s_
 
 
 def compute_new_gradient_field(omega_s, ambient, flash, M):
@@ -124,42 +122,106 @@ def compute_new_gradient_field(omega_s, ambient, flash, M):
     return grad_x, grad_y
 
 
-# %%
-ambient = read_image("../data/museum/museum_ambient.png")[:, :, :3] / 255.0
-flash = read_image("../data/museum/museum_flash.png")[:, :, :3] / 255.0
-ambient = read_image("glass_ambient.jpg")[::10, ::10] / 255.0
-flash = read_image("glass_flash.jpg")[::10, ::10] / 255.0
-# I_x, I_y = gradient(ambient)
-# div = divergence(I_x, I_y)
-lap = laplacian(ambient)
+if __name__ == "__main__":
 
-# res = display(lap)
-# show_im(res)
+    parser = argparse.ArgumentParser(description="Gradient domain processing")
 
-# GCD(D=lap, I_init=ambient, B=)
+    parser.add_argument("--scene", type=str, default="museum")
+    parser.add_argument("--downsample", type=int, default=1)
+    parser.add_argument("--epsilon", type=float, default=0.001)
+    parser.add_argument("--N", type=float, default=1000)
+    parser.add_argument("--sigma", type=float, default=40)
+    parser.add_argument("--tau_s", type=float, default=0.9)
+    parser.add_argument("--initialization", type=str, default="ambient")
+    parser.add_argument("--boundary", type=str, default="ambient")
 
-# %%
-# B = createBoundaryMask(ambient, 2)
-# res = GCD(
-#     D=lap, I_init=np.zeros_like(ambient), B=B, I_bound=ambient, epsilon=0.01, N=1000
-# )
-# show_im(res)
+    args = parser.parse_args()
+    data_dir = "../data"
 
+    ambient = (
+        read_image(
+            os.path.join(data_dir, args.scene, "{}_ambient.jpg".format(args.scene))
+        )[:: args.downsample, :: args.downsample, :3]
+        / 255.0
+    )
+    flash = (
+        read_image(
+            os.path.join(data_dir, args.scene, "{}_flash.jpg".format(args.scene))
+        )[:: args.downsample, :: args.downsample, :3]
+        / 255.0
+    )
 
-# %%
-tau_s = 0.1
-sigma = 500
-M, mask = compute_GOC_map(ambient, flash)
-omega_s = compute_saturation_weight_map(flash, tau_s, sigma)
-grad_x, grad_y = compute_new_gradient_field(omega_s, ambient, flash, M)
-div = divergence(grad_x, grad_y)
+    logger = logger.create_logger()
+    logger.info(args)
 
-# %%
-B = createBoundaryMask(ambient, 2)
-res = GCD(
-    D=div, I_init=np.zeros_like(ambient), B=B, I_bound=ambient, epsilon=0.001, N=1000
-)
-# show_im(res)
-save_im("merged.jpg", res)
+    M, mask = compute_GOC_map(ambient, flash)
+    omega_s = compute_saturation_weight_map(flash, args.tau_s, args.sigma)
+    grad_x, grad_y = compute_new_gradient_field(omega_s, ambient, flash, M)
+
+    amb_x, amb_y = gradient(ambient)
+    fls_x, fls_y = gradient(flash)
+    save_im(
+        os.path.join(data_dir, args.scene, "amb_x.jpg"),
+        display(amb_x),
+    )
+    save_im(
+        os.path.join(data_dir, args.scene, "amb_y.jpg"),
+        display(amb_y),
+    )
+
+    save_im(
+        os.path.join(data_dir, args.scene, "fls_x.jpg"),
+        display(fls_x),
+    )
+    save_im(
+        os.path.join(data_dir, args.scene, "fls_y.jpg"),
+        display(fls_y),
+    )
+
+    save_im(
+        os.path.join(data_dir, args.scene, "grad_x.jpg"),
+        display(grad_x),
+    )
+    save_im(
+        os.path.join(data_dir, args.scene, "grad_y.jpg"),
+        display(grad_y),
+    )
+
+    div = divergence(grad_x, grad_y)
+
+    B = createBoundaryMask(ambient, 2)
+
+    if args.initialization == "ambient":
+        I_init = ambient
+    elif args.initialization == "flash":
+        I_init = flash
+    elif args.initialization == "average":
+        I_init = (ambient + flash) / 2
+    elif args.initialization == "zeros":
+        I_init = np.zeros_like(ambient)
+    else:
+        logger.error("Unable to create initialization image to integrate")
+
+    if args.boundary == "ambient":
+        I_bound = ambient
+    elif args.boundary == "flash":
+        I_bound = flash
+    elif args.boundary == "average":
+        I_bound = (ambient + flash) / 2.0
+    else:
+        logger.error("Unable to create boundary condition for image to integrate")
+
+    res = GCD(
+        D=div, I_init=I_init, B=B, I_bound=I_bound, epsilon=args.epsilon, N=args.N
+    )
+
+    save_im(
+        os.path.join(
+            data_dir,
+            args.scene,
+            "i_{}_b_{}.jpg".format(args.initialization, args.boundary),
+        ),
+        res,
+    )
 
 # %%

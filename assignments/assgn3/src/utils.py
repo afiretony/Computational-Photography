@@ -25,4 +25,6 @@ def show_im(im):
 
 
 def save_im(filename, im):
-    plt.imsave(filename, im)
+    """assume im in float, [0, 1]"""
+
+    plt.imsave(filename, np.clip(im, 0, 1))
