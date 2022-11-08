@@ -21,21 +21,17 @@ Chenhao Yang
 | ![](figs/refocused/refocused_-0.600.png) | ![](figs/refocused/refocused_-0.700.png) |
 | ![](figs/refocused/refocused_-0.800.png) | ![](figs/refocused/refocused_-0.900.png) |
 
-
-
 ### All-in-focus image and depth from focus
 
 | All-in-focus                 | Depth from focus                             |
 | ---------------------------- | -------------------------------------------- |
 | ![](figs/I_all_in_focus.png) | ![](figs/depth_map_sigma1_0.5_sigma2_10.png) |
 
-For creating the depth map, I used`kernal_size=17`,  `sigma_1=0.5` and `sigma_2=2` in gaussian filtering. 
+For creating the depth map, I used`kernal_size=17`,  `sigma_1=0.5` and `sigma_2=2` in gaussian filtering.
 
 The depth in parts where lack of texture such as the blank chessboard and table are estimated incorrectly. This is because depth from focus basically calculates the local sharpness of the scene and use as weights, so the scene requires rich texture to show sharpness and sharing with neighbors. In sections that lacks rich texture, like blank chessboard, there's no sharpness so the weight for these areas are close to zeros all the time.
 
 The all-in-focus image are not affected by this issue, because pixels at these non-textured areas remain same across sub-aperture views.
-
-
 
 ## Focal-aperture stack and confocal stereo
 
@@ -50,8 +46,6 @@ Randomly selected AFIs:
 
 **Notes:** The AFIs here presented are not satisfying and we cannot visually identify too much difference across the patch. We will explain the reasons later with depth map estimated.
 
-
-
 All-in-focus and depth map estimated using confocal stereo:
 
 | All-in-focus                        | Depth map                        |
@@ -63,8 +57,6 @@ While the all-in-focus image seems fine with confocal stereo, the depth map esti
 - We do not have a wide range of aperture and focal settings like the paper has, this make AFIs not apparent
 - The scene doesn't contain same amount of texture as the paper has
 - The depth map computed using confocal stereo is pixel wise and doesn't use neighbouring information like previous method, so it looks containing a lot of noise
-
-
 
 ## Capture and refocus your own lightfield
 
@@ -80,29 +72,44 @@ The full video is located at `data/IMG_7346.MOV`.
 
 Here we are matching template from a patch of the scene by computing normalized cross-correlation. I used `scipy.signal.correlate2d` to calculate the numerator and demoninator of equation (9):
 
-- Use user selected focus point to create a local patch as template
-- subtract mean from template and image that is going to match
-- the numerator of normalized cross-correlation is `correlate2d(image, template)`
-- the denominator of normalized cross-correlation is `correlate2d(image**2, template**2)`
+- the numerator
+$$
+\begin{align}
+\sum_{k,l} {(g[k,l] - \bar g)(I_t[i+k, j+l] - \bar I_t[i,j])}
+& = corr(g-\bar g, I_t) - \sum_{k,l} {(g[k,l] - \bar g)}\;\bar I_t[i,j]\\
+&= corr(I_t,\;g-mean(g)) - 0 \\
+&= corr(I_t,\;g-mean(g))
+\end{align}
+$$
+
+- the demoninator
+$$
+\begin{align}
+&\sqrt{\sum_{k,l} (g[k,l]- \bar g)^2\sum_{k,l}(I_t[i+k, j+l] - \bar I_t[i,j])^2} \\
+& =sqrt\left(
+    sum(g-mean(g))^2 *\left(corr(I_t^2, box_{g})^2 - 2* corr(I_t, box_{g})*corr(I_t, box_{g}) + corr(I_t, \; box_{g})^2\right)
+\right)\\
+& =sqrt\left(
+    sum(g-mean(g))^2 * \left(corr(I_t^2, box_{g})^2 - corr(I_t, box_{g})^2\right)
+\right)\\
+
+\end{align}
+$$
 
 code-wise (in `python`):
 
 ```python
-image = image_g - image_g.mean()
-template = template_g - template_g.mean()
-
-image_square = image**2
-template_square = template**2
-
-corr_numerator = correlate2d(image, template, boundary="symm", mode="same")
-corr_denominator = np.sqrt(
-    correlate2d(image_square, template_square, boundary="symm", mode="same")
+box_g = np.ones_like(template_g) / (template_g.shape[0] * template_g.shape[1])
+h_numera = correlate2d(image_g, template_g - template_g.mean(), mode="same")
+h_demoni = np.sqrt(
+    np.sum((template_g - template_g.mean()) ** 2)
+    * (
+        correlate2d(image_g**2, box_g, mode="same") ** 2
+        - correlate2d(image_g, box_g, mode="same") ** 2
+    )
 )
-h = corr_numerator / corr_denominator
-r, c = np.unravel_index(np.argmax(h), h.shape)  # find the match
+h = h_numera / h_demoni
 ```
-
- 
 
 **Results**
 
@@ -115,4 +122,3 @@ For competition:
 ![](competition_entry.png)
 
 ---
-

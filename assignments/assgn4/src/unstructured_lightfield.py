@@ -39,17 +39,31 @@ def normalized_cross_correlation(image_g, template_g):
         r: the row index of the maximum correlation
         c: the column index of the maximum correlation
     """
-    image = image_g - image_g.mean()
-    template = template_g - template_g.mean()
-
-    image_square = image**2
-    template_square = template**2
-
-    corr_numerator = correlate2d(image, template, boundary="symm", mode="same")
-    corr_denominator = np.sqrt(
-        correlate2d(image_square, template_square, boundary="symm", mode="same")
+    box_g = np.ones_like(template_g) / (template_g.shape[0] * template_g.shape[1])
+    h_numera = correlate2d(image_g, template_g - template_g.mean(), mode="same")
+    h_demoni = np.sqrt(
+        np.sum((template_g - template_g.mean()) ** 2)
+        * (
+            correlate2d(image_g**2, box_g, mode="same") ** 2
+            - correlate2d(image_g, box_g, mode="same") ** 2
+        )
     )
-    h = corr_numerator / corr_denominator
+    h = h_numera / h_demoni
+    # r = np.argmax(h) // h.shape[1]
+    # c = np.argmax(h) % h.shape[1]
+    # return h, r, c
+
+    # image = image_g - image_g.mean()
+    # template = template_g - template_g.mean()
+
+    # image_square = image**2
+    # template_square = template**2
+
+    # corr_numerator = correlate2d(image, template, boundary="symm", mode="same")
+    # corr_denominator = np.sqrt(
+    #     correlate2d(image_square, template_square, boundary="symm", mode="same")
+    # )
+    # h = corr_numerator / corr_denominator
 
     r, c = np.unravel_index(np.argmax(h), h.shape)  # find the match
     return h, r, c
@@ -116,7 +130,7 @@ def refocus(scene, patch_size=50):
 
 
 if __name__ == "__main__":
-    refocused = refocus()
+    refocused = refocus("captured")
 
     # plt.imsave("figs/pumpkin/refocused.png", refocused, cmap="gray")
     plt.imshow(refocused)
