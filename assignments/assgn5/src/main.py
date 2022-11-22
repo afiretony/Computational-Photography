@@ -22,17 +22,21 @@ def initials(image_dir):
     images = sorted(glob.glob(os.path.join(image_dir, "*.tif")))
     num_images = len(images)
     h, w = read_tif(images[0], downsample).shape[:2]
+    mask = np.ones((h, w))
+
+    if os.path.exists(os.path.join(image_dir, "mask.png")):
+        mask = read_mask(os.path.join(image_dir, "mask.png"), downsample)
+        print("mask shape: ", mask.shape)
 
     I = np.zeros((num_images, h * w), dtype=np.float32)  # illuminance channel
     for i in range(num_images):
         im_path = images[i]
         RGB = read_tif(im_path, downsample)
         XYZ = lRGB2XYZ(RGB)
-        # print(XYZ)
-        # exit()
-
+        # apply mask
+        XYZ = XYZ * mask[:, :, np.newaxis]
         I[i] = XYZ[:, :, 1].flatten()
-
+    I += 0.01
     return I, h, w
 
 
@@ -67,7 +71,25 @@ def uncalibrated_photometric_stereo(I, h, w):
     S = np.diag(s)
     L = U[:, :3].T  # 3x7
     B = S[:3, :3] @ Vh[:3, :]  # 3xP
+    # Q = np.diag([1, 1, -1])
+    # Q = np.random.rand(3, 3)
+    # for q in Q:
+    #     print(q)
+    # B = np.linalg.inv(Q).T @ B
+
+    G = np.diag([1.0, 1.0, 1.0])
+
+    # G[2, 0] = 0.0
+    # G[2, 1] = 0.0
+    # G[2, 2] = 0.01
+
+    # print(G)
+    # old_B = B
+    B = np.linalg.inv(G).T @ B
+    # B[2, :] *= 10
+
     N = B / np.linalg.norm(B, axis=0, keepdims=True)  # 3xP
+
     a = np.linalg.norm(B, axis=0, keepdims=True)
 
     return B, N, a, L
@@ -110,7 +132,7 @@ def save_albedo_map(a, h, w, save_path):
         save_path: path to save albedo map
     """
     a = a.T.reshape((h, w))
-    a = (a * 255).astype(np.uint8)
+    # a = (a * 255).astype(np.uint8)
     plt.imsave(save_path, a, cmap="gray")
 
 
@@ -151,8 +173,10 @@ def enforce_integrability(B, h, w, sigma):
     U, s, Vh = scipy.linalg.svd(A, full_matrices=False)
     x = Vh[-1, :]
     Delta = np.array([[-x[2], x[5], 1], [x[1], -x[4], 0], [-x[0], x[3], 0]])
+    print(Delta)
     B_enforced = np.linalg.inv(Delta) @ B
-    B_enforced = np.diag((-1, -1, -1)) @ B_enforced
+
+    B_enforced = np.diag((1, 1, -1)) @ B_enforced
     N_enforced = B_enforced / np.linalg.norm(B_enforced, axis=0, keepdims=True)
     A_enforced = np.linalg.norm(B_enforced, axis=0, keepdims=True)
 
@@ -165,25 +189,26 @@ def integrate_normal_map(N, h, w):
     """
     # compute derivatives
     N = N.T.reshape((h, w, 3))
-    print(N[:, :, 2][np.abs(N[:, :, 2]) < 0.1])
-    N[:, :, 2] = np.where((N[:, :, 2] >= 0) * (N[:, :, 2] < 0.1), 0.1, N[:, :, 2])
-    N[:, :, 2] = np.where((N[:, :, 2] < 0) * (N[:, :, 2] > -0.1), -0.1, N[:, :, 2])
+
+    # N[:, :, 2] = np.where((N[:, :, 2] >= 0) * (N[:, :, 2] < 0.1), 1, N[:, :, 2])
+    # N[:, :, 2] = np.where((N[:, :, 2] < 0) * (N[:, :, 2] > -0.1), -1, N[:, :, 2])
     # N[:, :, 2][0 < N[:, :, 2] < 0.05] = 1
     # N[:, :, 2][N[:, :, 2] < 0 and N[:, :, 2] > -0.05] = -1
 
-    # N[:, :, 2] += 1e-3
+    N[:, :, 2] += 2
 
     # for i in range(3):
     #     N[:, :, i] = ndimage.gaussian_filter(N[:, :, i], sigma=5)
 
     fx = N[:, :, 0] / N[:, :, 2]
     fy = N[:, :, 1] / N[:, :, 2]
+
     N_unnormalized = np.dstack((fx, fy, np.ones_like(fx)))
-    Z = integrate_frankot(fx, fy)
-    # Z = integrate_poisson(fx, fy)
+    # Z = integrate_frankot(fx, fy)
+    Z = integrate_poisson(fx, fy)
     # normalize to [0, 1]
     Z = (Z - np.min(Z)) / (np.max(Z) - np.min(Z))
-    return Z
+    return np.clip(Z, 0.0, 1)
 
 
 def calibrate_photometric_stereo(I, h, w):
@@ -205,27 +230,48 @@ def calibrate_photometric_stereo(I, h, w):
     return N, A
 
 
+def new_render(B, L, h, w):
+    L = L.reshape((1, 3))
+    I = L @ B
+    return I.reshape((h, w))
+
+
 # %%
-sigma = 5
+sigma = 1
 
-I, h, w = initials("data")
-
+I, h, w = initials("green")
+# N, A = calibrate_photometric_stereo(I, h, w)
 B, N, a, L = uncalibrated_photometric_stereo(I, h, w)
-# print(N)
-# print(N.shape)
+
 # visualize_normal_map(N, h, w)
 # visualize_albedo_map(a, h, w)
-save_normal_map(N, h, w, "uncalibrated_normal_map.png")
+save_normal_map(N, h, w, "fig/green_normal.png")
+save_albedo_map(a, h, w, "fig/green_albedo.png")
+
+# save_normal_map(N, h, w, "fig/calibrated_normal_map.png")
+# save_albedo_map(A, h, w, "fig/calibrated_albedo_map.png")
+
 N, A = enforce_integrability(B, h, w, sigma)
-save_normal_map(N, h, w, "enforced_normal_map_{}.png".format(sigma))
+# save_normal_map(N, h, w, "fig/enforced_normal_map.png")
+# A = (A - A.min()) / (A.max() - A.min())
+# a = (a - a.min()) / (a.max() - a.min())
+
+# save_albedo_map(A, h, w, "fig/enforced_albedo_map.png")
+
 # visualize_normal_map(N, h, w)
-# visualize_albedo_map(a, h, w)
+# visualize_albedo_map(A, h, w)
 Z = integrate_normal_map(N, h, w)
-plt.imsave("depth_map_{}.png".format(sigma), Z, cmap="gray")
+plt.imsave("fig/green_depth.png", Z, cmap="gray")
+
+# plt.imsave("fig/calibrated_depth_map.png", Z, cmap="gray")
 
 # plt.imshow(Z, cmap="gray")
-# plt.show()·
-# visualize_surface(Z)
+# plt.show()
+visualize_surface(Z)
 
 # N, A = calibrate_photometric_stereo(I, h, w)
 # visualize_normal_map(N, h, w)
+# L = np.array([[0.01836523], [0.6925411], [0.32856747]])
+# print(L)
+# I = new_render(B, L, h, w)
+# plt.imsave("fig/shoe_new_render.png", I, cmap="gray")

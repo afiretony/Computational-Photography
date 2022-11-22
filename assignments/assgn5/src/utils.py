@@ -11,6 +11,13 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import LightSource
 from mpl_toolkits.mplot3d import Axes3D
 
+# read mask
+def read_mask(filename, downsample=1):
+    mask = io.imread(filename)
+    mask = mask[::downsample, ::downsample]
+    return mask
+
+
 # implement 2D DCT
 def dct2(a):
     return dct(dct(a.T, norm="ortho").T, norm="ortho")
