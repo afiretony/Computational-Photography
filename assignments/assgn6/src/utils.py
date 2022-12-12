@@ -4,6 +4,7 @@ import open3d as o3d
 
 def read_img(img_path):
     img = cv2.imread(img_path, cv2.IMREAD_UNCHANGED)
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     return img
 
 

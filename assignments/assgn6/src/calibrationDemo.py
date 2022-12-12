@@ -7,9 +7,9 @@ import numpy as np
 
 # Input data locations
 baseDir = "../data"  # data directory
-objName = "frog"  # object name (should correspond to a dir in data)
+objName = "green"  # object name (should correspond to a dir in data)
 seqName = "v1"  # sequence name (subdirectory of object)
-calName = "calib"  # calibration sourse (also a dir in data)
+calName = "calib-cup"  # calibration sourse (also a dir in data)
 image_ext = "jpg"  # file extension for images
 useLowRes = False  # enable lowres for debugging
 
