@@ -24,21 +24,6 @@ def truncated_tent(d, d_small, d_large, overlap):
     return np.clip(alpha, 0.0, 1.0)
 
 
-# def prepare_blur_stack(im, focal_dist, d_stack, sigma):
-#     """
-#     Prepare blur stack
-#     """
-#     blurred_stack = np.zeros((len(d_stack), im.shape[0], im.shape[1], im.shape[2]))
-#     for i in range(len(d_stack)):
-#         blurred_stack[i] = ApplyBlur(im, kernel_size, sigma * d_stack[i])
-
-#     return blurred_stack
-
-
-# def merge_blur_images():
-#     pass
-
-
 def blur_image(im, depth_map, d_focus, sigma):
 
     d_stack = np.linspace(0, 1, NUM_BLURS)

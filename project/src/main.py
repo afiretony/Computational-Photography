@@ -20,9 +20,19 @@ for i in range(depth_map.shape[0]):
         np.max(depth_map[i]) - np.min(depth_map[i])
     )
 
+
 depth_map = [
     cv2.pyrUp(depth_map[i], dstsize=(640, 480)) for i in range(depth_map.shape[0])
 ]
+i = 1
+before = depth_map[i]
+# cv2.imshow("before", depth_map[1])
+
+depth_map = [
+    cv2.bilateralFilter(depth_map[i], 9, 75, 75) for i in range(len(depth_map))
+]
+after = depth_map[i]
+cv2.imshow("after", depth_map[i])
 
 # def select_focal_point(image, depth_map):
 #     """
@@ -72,7 +82,7 @@ def interactive(image, depth_map):
         blurred = blur_image(image, depth_map, d_focus, f)
 
         # display
-        cv2.rectangle(blurred, (x1, y1), (x2, y2), (255, 0, 0), 2)
+        # cv2.rectangle(blurred, (x1, y1), (x2, y2), (255, 0, 0), 2)
         blurred_bgr = cv2.cvtColor(blurred, cv2.COLOR_RGB2BGR)
         cv2.imshow("image", blurred_bgr)
 
@@ -96,8 +106,15 @@ def interactive(image, depth_map):
     return ix, iy
 
 
-i = 12
 image, depth = images[i], depth_map[i]
+
+diff = np.abs(before - after)
+# normalize
+diff = (diff - np.min(diff)) / (np.max(diff) - np.min(diff))
+# cv2.imshow("difference", diff)
+
+# cv2.waitKey(0)
+
 interactive(image, depth)
 # d_focus = depth_map[8][iy, ix]
 
